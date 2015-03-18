@@ -1,8 +1,9 @@
 ﻿using System.Windows.Forms;
+using System.Linq;
 
 namespace CASCExplorer
 {
-    class NoFlickerListView : ListView
+    public class NoFlickerListView : ListView
     {
         public NoFlickerListView()
         {
@@ -21,13 +22,26 @@ namespace CASCExplorer
 
         public int SelectedIndex
         {
-            get { return HasSingleSelection ? SelectedIndices[0] : -1; }
+            get
+            {
+                int selCount = SelectedIndices.Count;
+
+                if (selCount == 0)
+                    return -1;
+                else if (selCount == 1)
+                    return SelectedIndices[0];
+                else
+                    return SelectedIndices.Cast<int>().Max();
+            }
             set
             {
                 SelectedIndices.Clear();
 
                 if (value >= 0)
+                {
                     SelectedIndices.Add(value);
+                    Items[value].Selected = true;
+                }
             }
         }
     }

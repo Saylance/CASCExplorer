@@ -27,6 +27,8 @@ namespace CASCExplorer
         ptBR = 0x4000,
         itIT = 0x8000,
         ptPT = 0x10000,
+        enSG = 0x20000000, // custom
+        plPL = 0x40000000, // custom
         All_WoW = enUS | koKR | frFR | deDE | zhCN | esES | zhTW | enGB | esMX | ruRU | ptBR | itIT | ptPT
     }
 
@@ -49,7 +51,7 @@ namespace CASCExplorer
         public RootBlock Block;
         public int Unk1;
         public byte[] MD5;
-        public ulong Hash;
+        //public ulong Hash;
 
         public override string ToString()
         {
@@ -57,7 +59,7 @@ namespace CASCExplorer
         }
     }
 
-    public class WowRootHandler
+    public class WowRootHandler : IRootHandler
     {
         private readonly MultiDictionary<ulong, RootEntry> RootData = new MultiDictionary<ulong, RootEntry>();
         private readonly HashSet<ulong> UnknownFiles = new HashSet<ulong>();
@@ -111,7 +113,7 @@ namespace CASCExplorer
                         entries[i].MD5 = br.ReadBytes(16);
 
                         ulong hash = br.ReadUInt64();
-                        entries[i].Hash = hash;
+                        //entries[i].Hash = hash;
 
                         RootData.Add(hash, entries[i]);
                     }
@@ -125,7 +127,7 @@ namespace CASCExplorer
             }
         }
 
-        public HashSet<RootEntry> GetAllEntries(ulong hash)
+        public IEnumerable<RootEntry> GetAllEntries(ulong hash)
         {
             HashSet<RootEntry> result;
             RootData.TryGetValue(hash, out result);
@@ -163,6 +165,8 @@ namespace CASCExplorer
 
             if (!File.Exists(path))
                 throw new FileNotFoundException("list file missing!");
+
+            Logger.WriteLine("WowRootHandler: loading file names...");
 
             using (var sr = new StreamReader(path))
             {
@@ -288,6 +292,20 @@ namespace CASCExplorer
             }
 
             return Root;
+        }
+
+        public bool IsUnknownFile(ulong hash)
+        {
+            return UnknownFiles.Contains(hash);
+        }
+
+        public void Clear()
+        {
+            RootData.Clear();
+            UnknownFiles.Clear();
+            Root.SubEntries.Clear();
+            CASCFolder.FolderNames.Clear();
+            CASCFile.FileNames.Clear();
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -15,12 +16,12 @@ namespace CASCExplorer
 
     public class CASCHandler
     {
-        private readonly LocalIndexHandler LocalIndex;
-        private readonly CDNIndexHandler CDNIndex;
+        private LocalIndexHandler LocalIndex;
+        private CDNIndexHandler CDNIndex;
 
-        private readonly InstallHandler InstallHandler;
-        private readonly EncodingHandler EncodingHandler;
-        private readonly WowRootHandler RootHandler;
+        private InstallHandler InstallHandler;
+        private EncodingHandler EncodingHandler;
+        private IRootHandler RootHandler;
 
         private static readonly Jenkins96 Hasher = new Jenkins96();
 
@@ -30,33 +31,77 @@ namespace CASCExplorer
 
         public InstallHandler Install { get { return InstallHandler; } }
         public EncodingHandler Encoding { get { return EncodingHandler; } }
-        public WowRootHandler Root { get { return RootHandler; } }
+        public IRootHandler Root { get { return RootHandler; } }
+        public CASCConfig Config { get { return config; } }
 
         private CASCHandler(CASCConfig config, AsyncAction worker)
         {
             this.config = config;
 
+            Logger.WriteLine("CASCHandler: loading CDN indices...");
+
+            Stopwatch sw = new Stopwatch();
+
+            sw.Restart();
             CDNIndex = CDNIndexHandler.Initialize(config, worker);
+            sw.Stop();
+
+            Logger.WriteLine("CASCHandler: loaded {0} CDN indexes in {1}", CDNIndex.Count, sw.Elapsed);
 
             if (!config.OnlineMode)
-                LocalIndex = LocalIndexHandler.Initialize(config, worker);
+            {
+                Logger.WriteLine("CASCHandler: loading local indices...");
 
+                sw.Restart();
+                LocalIndex = LocalIndexHandler.Initialize(config, worker);
+                sw.Stop();
+
+                Logger.WriteLine("CASCHandler: loaded {0} local indexes in {1}", LocalIndex.Count, sw.Elapsed);
+            }
+
+            Logger.WriteLine("CASCHandler: loading encoding data...");
+
+            sw.Restart();
             using (var fs = OpenEncodingFile())
                 EncodingHandler = new EncodingHandler(fs, worker);
+            sw.Stop();
 
-            Logger.WriteLine("CASCHandler: loaded {0} encoding data", EncodingHandler.Count);
+            Logger.WriteLine("CASCHandler: loaded {0} encoding data in {1}", EncodingHandler.Count, sw.Elapsed);
 
+            Logger.WriteLine("CASCHandler: loading install data...");
+
+            sw.Restart();
             using (var fs = OpenInstallFile())
                 InstallHandler = new InstallHandler(fs, worker);
+            sw.Stop();
 
-            Logger.WriteLine("CASCHandler: loaded {0} install data", InstallHandler.Count);
+            Logger.WriteLine("CASCHandler: loaded {0} install data in {1}", InstallHandler.Count, sw.Elapsed);
 
-            InstallHandler.Print();
+            Logger.WriteLine("CASCHandler: loading root data...");
 
+            sw.Restart();
             using (var fs = OpenRootFile())
-                RootHandler = new WowRootHandler(fs, worker);
+            {
+                byte[] magic = new byte[4];
+                fs.Read(magic, 0, magic.Length);
+                fs.Position = 0;
 
-            Logger.WriteLine("CASCHandler: loaded {0} root data", RootHandler.Count);
+                if (magic[0] == 0x4D && magic[1] == 0x4E && magic[2] == 0x44 && magic[3] == 0x58) // MNDX
+                {
+                    RootHandler = new MNDXRootHandler(fs, worker);
+                }
+                else if (config.BuildUID.StartsWith("d3"))
+                {
+                    RootHandler = new D3RootHandler(fs, worker, this);
+                }
+                else
+                {
+                    RootHandler = new WowRootHandler(fs, worker);
+                }
+            }
+            sw.Stop();
+
+            Logger.WriteLine("CASCHandler: loaded {0} root data in {1}", RootHandler.Count, sw.Elapsed);
         }
 
         private Stream OpenInstallFile()
@@ -66,12 +111,12 @@ namespace CASCExplorer
             if (encInfo == null)
                 throw new FileNotFoundException("encoding info for install file missing!");
 
-            Stream s = TryLocalCache(encInfo.Key, config.InstallMD5, Path.Combine("data", config.Build.ToString(), "install"));
+            Stream s = TryLocalCache(encInfo.Key, config.InstallMD5, Path.Combine("data", config.BuildName, "install"));
 
             if (s != null)
                 return s;
 
-            s = TryLocalCache(encInfo.Key, config.InstallMD5, Path.Combine("data", config.Build.ToString(), "install"));
+            s = TryLocalCache(encInfo.Key, config.InstallMD5, Path.Combine("data", config.BuildName, "install"));
 
             if (s != null)
                 return s;
@@ -86,12 +131,12 @@ namespace CASCExplorer
             if (encInfo == null)
                 throw new FileNotFoundException("encoding info for root file missing!");
 
-            Stream s = TryLocalCache(encInfo.Key, config.RootMD5, Path.Combine("data", config.Build.ToString(), "root"));
+            Stream s = TryLocalCache(encInfo.Key, config.RootMD5, Path.Combine("data", config.BuildName, "root"));
 
             if (s != null)
                 return s;
 
-            s = TryLocalCache(encInfo.Key, config.RootMD5, Path.Combine("data", config.Build.ToString(), "root"));
+            s = TryLocalCache(encInfo.Key, config.RootMD5, Path.Combine("data", config.BuildName, "root"));
 
             if (s != null)
                 return s;
@@ -101,12 +146,12 @@ namespace CASCExplorer
 
         private Stream OpenEncodingFile()
         {
-            Stream s = TryLocalCache(config.EncodingKey, config.EncodingMD5, Path.Combine("data", config.Build.ToString(), "encoding"));
+            Stream s = TryLocalCache(config.EncodingKey, config.EncodingMD5, Path.Combine("data", config.BuildName, "encoding"));
 
             if (s != null)
                 return s;
 
-            s = TryLocalCache(config.EncodingKey, config.EncodingMD5, Path.Combine("data", config.Build.ToString(), "encoding"));
+            s = TryLocalCache(config.EncodingKey, config.EncodingMD5, Path.Combine("data", config.BuildName, "encoding"));
 
             if (s != null)
                 return s;
@@ -114,7 +159,7 @@ namespace CASCExplorer
             return OpenFile(config.EncodingKey);
         }
 
-        private Stream TryLocalCache(byte[] key, byte[] md5, string name)
+        public Stream TryLocalCache(byte[] key, byte[] md5, string name)
         {
             if (File.Exists(name))
             {
@@ -136,7 +181,7 @@ namespace CASCExplorer
             return null;
         }
 
-        private Stream OpenFile(byte[] key)
+        public Stream OpenFile(byte[] key)
         {
             try
             {
@@ -262,7 +307,12 @@ namespace CASCExplorer
             if (DataStreams.TryGetValue(index, out stream))
                 return stream;
 
-            string dataFile = Path.Combine(config.BasePath, String.Format("Data\\data\\data.{0:D3}", index));
+            string dataFolder = "Data";
+
+            if (RootHandler is MNDXRootHandler)
+                dataFolder = "HeroesData";
+
+            string dataFile = Path.Combine(config.BasePath, String.Format("{0}\\data\\data.{1:D3}", dataFolder, index));
 
             stream = new FileStream(dataFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             DataStreams[index] = stream;
@@ -298,7 +348,7 @@ namespace CASCExplorer
         public bool FileExists(ulong hash)
         {
             var rootInfos = RootHandler.GetAllEntries(hash);
-            return rootInfos != null && rootInfos.Count > 0;
+            return rootInfos != null && rootInfos.Any();
         }
 
         public EncodingEntry GetEncodingEntry(ulong hash)
@@ -344,6 +394,29 @@ namespace CASCExplorer
             }
 
             throw new FileNotFoundException(fullName);
+        }
+
+        public void Clear()
+        {
+            CDNIndex.Clear();
+            CDNIndex = null;
+
+            DataStreams.Clear();
+
+            EncodingHandler.Clear();
+            EncodingHandler = null;
+
+            InstallHandler.Clear();
+            InstallHandler = null;
+
+            if (LocalIndex != null)
+            {
+                LocalIndex.Clear();
+                LocalIndex = null;
+            }
+
+            RootHandler.Clear();
+            RootHandler = null;
         }
     }
 }

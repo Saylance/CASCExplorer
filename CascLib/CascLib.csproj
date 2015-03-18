@@ -49,13 +49,16 @@
     <Compile Include="CASCHandler.cs" />
     <Compile Include="CDNIndexHandler.cs" />
     <Compile Include="AsyncAction.cs" />
+    <Compile Include="D3RootHandler.cs" />
     <Compile Include="EncodingHandler.cs" />
     <Compile Include="Extensions.cs" />
     <Compile Include="InstallHandler.cs" />
+    <Compile Include="IRootHandler.cs" />
     <Compile Include="Jenkins96.cs" />
     <Compile Include="Jenkins96Old.cs" />
     <Compile Include="LocalIndexHandler.cs" />
     <Compile Include="Logger.cs" />
+    <Compile Include="MNDXRootHandler.cs" />
     <Compile Include="MultiDictionary.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SyncDownloader.cs" />

@@ -69,8 +69,8 @@ namespace CASCExplorer
                             // use first key for now
                             if (ki == 0)
                                 entry.Key = key;
-                            else
-                                Logger.WriteLine("Multiple encoding keys for MD5 {0}: {1}", md5.ToHexString(), key.ToHexString());
+                            //else
+                            //    Logger.WriteLine("Multiple encoding keys for MD5 {0}: {1}", md5.ToHexString(), key.ToHexString());
                         }
 
                         //Encodings[md5] = entry;
@@ -101,6 +101,11 @@ namespace CASCExplorer
             EncodingEntry result;
             EncodingData.TryGetValue(md5, out result);
             return result;
+        }
+
+        public void Clear()
+        {
+            EncodingData.Clear();
         }
     }
 }
